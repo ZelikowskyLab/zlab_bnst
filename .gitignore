@@ -1,0 +1,4 @@
+*.npz
+*.json
+*.vscode*
+*pyc
