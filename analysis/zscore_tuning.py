@@ -14,6 +14,8 @@ Outputs saved to data/z_scores_all.csv and data/p_values_all.csv.
 import pandas as pd
 from pathlib import Path
 import numpy as np
+import sys
+sys.path.extend(['/Users/amonast/Documents/GitHub/zlab_miniscope'])
 from load_traces import load_aligned_act
 
 def _resolve_overlaps(df: pd.DataFrame) -> pd.DataFrame:
@@ -56,7 +58,7 @@ def get_intervals(behavior_df: pd.DataFrame, animal: str, session: str) -> pd.Da
 
 
 def _time_mean(act_vals: np.ndarray, act_times: np.ndarray,
-               intervals_bt: pd.DataFrame) -> np.ndarray:
+               intervals_bt: pd.DataFrame, extra_mask: np.ndarray = None) -> np.ndarray:
     """
     Mean activity across all frames belonging to any bout (time-weighted).
     Returns (N_cells,) array; NaN if no bouts overlap the trace.
@@ -64,6 +66,8 @@ def _time_mean(act_vals: np.ndarray, act_times: np.ndarray,
     mask = np.zeros(len(act_times), dtype=bool)
     for _, bout in intervals_bt.iterrows():
         mask |= (act_times >= bout["start"]) & (act_times < bout["end"])
+    if extra_mask is not None:
+        mask |= extra_mask
     if mask.sum() == 0:
         return np.full(act_vals.shape[1], np.nan)
     return act_vals[mask].mean(axis=0)
@@ -78,7 +82,8 @@ def zscore_against_shuffle(act_vals:  np.ndarray,
                             OUT_DIR = str,
                             n_shuffles: int=1000,
                             seed:       int=42,
-                            exclude_early_shuffle: bool=True,) -> tuple[pd.DataFrame, pd.DataFrame]:
+                            exclude_early_shuffle: bool=True,
+                            baseline_cutoff: float=120,) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     For each behavior_type, compute a per-cell z-score and permutation p-value
     against a circular-shift null.
@@ -87,29 +92,28 @@ def zscore_against_shuffle(act_vals:  np.ndarray,
     The null is built by circularly shifting the full trace and re-computing
     the same metric at the original bout intervals
 
+    The baseline period (frames before `baseline_cutoff`) is folded into the
+    "Other" category rather than scored as its own separate behavior_type.
+
     Returns z_scores and p_values as DataFrames indexed by
     (animal, session, behavior_type).
     """
     rng = np.random.default_rng(seed)
     T   = len(act_vals)
 
-    # Exclude Baseline rows (forced label, not scored behavior)
-    scored = intervals[~intervals["behavior_type"].isin(["Baseline", "Other"])]
+    scored = intervals[~intervals["behavior_type"].isin(["Baseline"])]
     btypes = scored["behavior_type"].unique().tolist()
-    btypes += ["Baseline"]   # keep Baseline as a reference category
+    if "Other" not in btypes:
+        btypes.append("Other")
+
+    baseline_mask = act_times < baseline_cutoff
 
     # ── Observed: mean of per-bout means ──────────────────────────────────────
     observed = {}
     for bt in btypes:
-        if bt == "Baseline":
-            baseline_mask = act_times < 120
-            if baseline_mask.sum() == 0:
-                observed[bt] = np.full(len(cell_cols), np.nan)
-            else:
-                observed[bt] = act_vals[baseline_mask].mean(axis=0)
-        else:
-            bt_ivs = scored[scored["behavior_type"] == bt]
-            observed[bt] = _time_mean(act_vals, act_times, bt_ivs)
+        bt_ivs = scored[scored["behavior_type"] == bt]
+        observed[bt] = _time_mean(act_vals, act_times, bt_ivs,
+                                   extra_mask=baseline_mask if bt == "Other" else None)
 
     # ── Null via circular shift ────────────────────────────────────────────────
     scored_null = scored[scored["start"] >= 200] if exclude_early_shuffle else scored
@@ -123,12 +127,9 @@ def zscore_against_shuffle(act_vals:  np.ndarray,
         rolled_traces[i] = shifted_vals
 
         for bt in btypes:
-            if bt == "Baseline":
-                baseline_mask          = act_times < 120
-                shuffle_dist[bt][i]    = shifted_vals[baseline_mask].mean(axis=0)
-            else:
-                bt_ivs                 = scored_null[scored_null["behavior_type"] == bt]
-                shuffle_dist[bt][i]    = _time_mean(shifted_vals, act_times, bt_ivs)
+            bt_ivs               = scored_null[scored_null["behavior_type"] == bt]
+            shuffle_dist[bt][i]  = _time_mean(shifted_vals, act_times, bt_ivs,
+                                               extra_mask=baseline_mask if bt == "Other" else None)
 
     # # ── Save full rolled traces (n_shuffles, n_timepoints, n_cells) ───────────
     # shuf_path = OUT_DIR / f"{animal}_{session}_shuffles.npz"
@@ -161,7 +162,7 @@ def zscore_against_shuffle(act_vals:  np.ndarray,
 # ── Main ───────────────────────────────────────────────────────────────────────
 def main():
     # ── Config ─────────────────────────────────────────────────────────────────────
-    BEHAVIOR_CSV    = Path("/Users/amonast/Desktop/miniscope/data/intervals_allmice.csv")
+    BEHAVIOR_CSV    = Path("/Users/amonast/Desktop/miniscope/data/tuning/intervals_allmice.csv")
     TRACES_DIR      = Path("/Users/amonast/Desktop/miniscope/Traces")
     INFO_CSV        = Path("/Users/amonast/Desktop/miniscope/dbnst_data_info.csv")
     OUT_DIR         = Path("/Users/amonast/Desktop/miniscope/data")
@@ -172,21 +173,20 @@ def main():
 
     behavior_df = pd.read_csv(BEHAVIOR_CSV, index_col=0)
     behavior_df["time"] = pd.to_timedelta(behavior_df["time"])
-    animal_sessions = [('C3F4', 'R2')]
 
-    
-    # animal_sessions = [
-    #     ('C1F2', 'R1'), ('C1F2', 'R2'),
-    #     ('C1M1', 'R1'), ('C1M1', 'R2'),
-    #     ('C1M2', 'R1'), ('C1M2', 'R2'),
-    #     ('C2F1', 'R1'), ('C2F1', 'R2'),
-    #     ('C2M4', 'R1'), ('C2M4', 'R2'),
-    #     ('C3F3', 'R1'), ('C3F3', 'R2'),
-    #     ('C3F4', 'R1'), ('C3F4', 'R2'),
-    #     ('C3M2', 'R1'), ('C3M2', 'R2'),
-    #     ('C3M3', 'R1'), ('C3M3', 'R2'),
-    #     ('C3M4', 'R1'), ('C3M4', 'R2'),]
-    
+    animal_sessions = [
+        # ('C1F2', 'R1'), ('C1F2', 'R2'),
+        # ('C1M1', 'R1'), ('C1M1', 'R2'),
+        # ('C1M2', 'R1'), ('C1M2', 'R2'),
+        # ('C2F1', 'R1'), ('C2F1', 'R2'),
+        # ('C2M4', 'R1'), ('C2M4', 'R2'),
+        # ('C3F3', 'R1'), ('C3F3', 'R2'),
+        # ('C3F4', 'R1'), ('C3F4', 'R2'),
+        # ('C3M2', 'R1'), ('C3M2', 'R2'),
+        # ('C3M3', 'R1'), ('C3M3', 'R2'),
+        # ('C3M4', 'R1'), ('C3M4', 'R2'),
+        ('C0F2C','R2')]
+
     all_z, all_p = [], []
 
     for animal,session in animal_sessions:
@@ -209,9 +209,10 @@ def main():
             intervals = get_intervals(behavior_df, animal, session)
 
             z, p = zscore_against_shuffle(
-                            act_vals, act_times, cell_cols, 
-                            intervals, animal, session, 
-                            OUT_DIR=OUT_DIR,n_shuffles=N_SHUFFLES,)
+                            act_vals, act_times, cell_cols,
+                            intervals, animal, session,
+                            OUT_DIR=OUT_DIR,n_shuffles=N_SHUFFLES,
+                            baseline_cutoff=BASELINE_CUTOFF,)
             
             z.to_csv(OUT_DIR / f"z_scores_{animal}_{session}.csv")
             p.to_csv(OUT_DIR / f"p_values_{animal}_{session}.csv")

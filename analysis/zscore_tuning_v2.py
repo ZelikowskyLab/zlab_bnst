@@ -68,6 +68,7 @@ def main():
             act_vals, act_times, cell_cols,
             intervals, animal, session,
             OUT_DIR=OUT_DIR, n_shuffles=N_SHUFFLES, seed=SEED,
+            baseline_cutoff=BASELINE_CUTOFF,
         )
 
         all_z.append(z)

@@ -6,9 +6,9 @@ import sys
 import argparse
 from itertools import product 
 
-_ROOT = Path(__file__).parent
+_ROOT = Path('/Users/amonast/Desktop/miniscope')
 _DEFAULT_TRACES_DIR  = _ROOT / "Traces"
-_DEFAULT_BEHAVIOR_CSV = _ROOT / "data" / "intervals_allmice.csv"
+_DEFAULT_BEHAVIOR_CSV = _ROOT / "data" /"tuning"/ "intervals_allmice.csv"
 _DEFAULT_INFO_CSV     = _ROOT / "dbnst_data_info.csv"
 
 
@@ -106,6 +106,8 @@ def build_intervals(animal: str, session: str, behavior_csv: Path | None = None)
             records.append(dict(animal=animal, session=session,
                                 Behavior=behavior, behavior_type=btype, start=s, end=e))
 
+    if not records:
+        raise ValueError(f"No behavior intervals for {animal} {session} in {behavior_csv}")
     return _resolve_overlaps(pd.DataFrame(records))
 
 
@@ -188,22 +190,32 @@ def load_aligned_act(animal: str,
     locs, _ = iv_idx.get_indexer_non_unique(act.index.total_seconds().to_numpy())
     safe    = locs.clip(0)
 
-    act["Behavior"]      = np.where(locs >= 0, intervals["Behavior"].to_numpy()[safe],      pd.NA)
-    act["behavior_type"] = np.where(locs >= 0, intervals["behavior_type"].to_numpy()[safe], pd.NA)
-    act.loc[act.index.total_seconds() < baseline_cutoff, ["Behavior", "behavior_type"]] = "Baseline"
-
+    act["Behavior"]      = np.where(locs >= 0, intervals["Behavior"].to_numpy()[safe],      "Unlabeled")
+    act["behavior_type"] = np.where(locs >= 0, intervals["behavior_type"].to_numpy()[safe], "Other")
+    act.loc[act.index.total_seconds() < baseline_cutoff, "Behavior"] = "Baseline"
+    act.loc[act.index.total_seconds() < baseline_cutoff, "behavior_type"] = "Other"   
     act["animal"]  = animal
     act["session"] = session
 
     return act.reset_index().set_index(["animal", "session", "timestamp"])
 
 ## Data
-def get_tuned_df(animals,data_dir,sessions=['R1','R2']):
+def get_tuned_df(animals, data_dir, sessions=['R1', 'R2'], filter_pos=False, z_thr=2):
+    """
+    filter_pos : bool
+        If True, also require zscore > z_thr (not just p<=0.05) for a cell to
+        be included in tuned_cells. If False (default), tuned_cells is
+        significance-only and can include negatively (inhibited) cells.
+    z_thr : float
+        Threshold used when filter_pos=True.
+    """
     index_cols = ['animal', 'session', 'behavior_type']
     rows = []
     for ani, session in product(animals, sessions):
-        pf = f"{data_dir}/p_values_{ani}_{session}.csv"
-        zf = f"{data_dir}/z_scores_{ani}_{session}.csv"
+        pf = f"{data_dir}/tuning/p_values_{ani}_{session}.csv"
+        zf = f"{data_dir}/tuning/z_scores_{ani}_{session}.csv"
+        if not (Path(pf).exists() and Path(zf).exists()):
+            continue
         df_p = pd.read_csv(pf).set_index(index_cols)
         df_z = pd.read_csv(zf).set_index(index_cols)
 
@@ -213,14 +225,36 @@ def get_tuned_df(animals,data_dir,sessions=['R1','R2']):
     df = pd.concat(rows).sort_index()
 
     sig = df.xs('pval', level='metric').le(0.05)
-    pos = df.xs('zscore', level='metric').gt(0)
-    tuned = (sig.apply(lambda row: row.index[row].tolist(), axis=1)
+    mask = sig
+    if filter_pos:
+        pos = df.xs('zscore', level='metric').gt(z_thr)
+        mask = sig & pos
+    tuned = (mask.apply(lambda row: row.index[row].tolist(), axis=1)
                 .rename('tuned_cells')
                 .reset_index())
 
-    ## exlcude these animals cells as aggessive tuned b/c one was the intruder mouse and one only had one tiny bout 
+    ## exlcude these animals cells as aggessive tuned b/c one was the intruder mouse and one only had one tiny bout
     tuned = tuned[~((tuned["animal"].isin(["C2M4", "C2F1"])) & (tuned["behavior_type"] == "Aggressive"))]
     return tuned,df
+
+def get_co_tuned_cells(df, behavior_a, behavior_b, exclude_animals=None):
+    """Cells with p<=0.05 and z>0 for BOTH behavior_a and behavior_b, per (animal, session)."""
+    sig = df.xs('pval', level='metric').le(0.05)
+    pos = df.xs('zscore', level='metric').gt(0)
+    sig_pos = sig & pos
+
+    a = sig_pos.xs(behavior_a, level='behavior_type')
+    b = sig_pos.xs(behavior_b, level='behavior_type')
+    if exclude_animals:
+        a = a.drop(index=exclude_animals, level='animal', errors='ignore')
+        b = b.drop(index=exclude_animals, level='animal', errors='ignore')
+
+    co_tuned_mask = a & b.reindex_like(a)
+    return (co_tuned_mask.apply(lambda row: row.index[row].tolist(), axis=1)
+                          .rename('co_tuned_cells')
+                          .reset_index())
+
+
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
@@ -235,4 +269,4 @@ def main(argv=None):
     print(act)
 
 if __name__ == '__main__':
-    main(['C1F2', 'R1'])
+    main(['C0F2C', 'R2'])

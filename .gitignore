@@ -3,3 +3,10 @@
 *.vscode*
 *pyc
 *.DS_Store
+
+# figures and exported images stay out of the repo
+figures/
+*.png
+*.pdf
+*.ai
+*.svg
