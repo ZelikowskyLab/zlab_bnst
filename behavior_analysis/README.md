@@ -10,14 +10,14 @@ lives somewhere else. Figures save to `figures/` in this folder,
 which git ignores. Run scripts and notebooks from this folder.
 
 Still in `Desktop/miniscope`, and not expected to run until moved here:
-`organize_group_folders.py` and the t-SNE notebooks.
+`organize_group_folders.py` and the PCA notebooks.
 
 | Step | What | Script(s) | Output |
 |---|---|---|---|
 | 1 | [Data organization](#1-data-organization) | `convert_xlsx_to_csv.py` | per-mouse tracking CSVs + scoring CSVs next to each `.xlsx` |
 | 2 | [Feature extraction](#2-feature-extraction) | `export_features_csv.py`, `extract_features.py` | one per-frame feature CSV per trial in `data/features_export/` |
 | 3 | [UMAP + watershed Figure 1](#3-figure-1----umap--watershed-all-frames) | `run_umap.py` → `explore_watershed.ipynb` → `umap_figures.ipynb` | UMAP run folders in `data/umap_results/`; figures in `figures/` |
-| 4 | [Attack-approach t-SNE Figure 3](#4-attack-approach-t-sne-in-progress) | *in progress* | |
+| 4 | [Attack-approach PCA Figure 3](#4) | *in progress* | |
 
 ---
 
@@ -213,6 +213,21 @@ attacking, and compares approach types between groups C, B and Opto.
 export. This is the resident's nose position with the intruder's center at
 (0, 0) and the intruder facing +y.
 
+**PCA features** (`pca_attack_bouts.py`): three features, each made of two
+series measured at every one of the 60 frames (2 s) before the attack.
+
+| Feature | Series | Meaning | Units |
+|---|---|---|---|
+| Path | `path_x`, `path_y` | resident's nose relative to the intruder: x = left/right of the intruder, y = ahead of/behind it (intruder's center at (0, 0), facing +y). Not mirrored, so left and right approaches differ | cm |
+| Facing | `facing_cos`, `facing_sin` | angle from the resident's heading (center to nose) to the line toward the intruder's center. cos: 1 = facing the intruder, -1 = facing away. sin: positive = the intruder is to the resident's left | -1 to 1 |
+| Approach speed | `resident_approach_speed`, `intruder_approach_speed` | part of each mouse's velocity directed at the other mouse's center (negative = moving away) | cm/s |
+
+This gives 6 series x 60 frames = 360 columns per bout. Every column is z-scored
+across bouts (`scipy.stats.zscore`), so every column counts the same and, with
+120 columns per feature, the three features count equally. Paths go in as
+recorded; facing and approach speed come from `extract_bout_kinematics.py`, which
+smooths positions over 7 frames (Savitzky-Golay, order 2) first.
+
 **Attack bouts:** one per resident `Attack` start in the fixed `behavior`
 column, 143 in total.
 
@@ -222,10 +237,8 @@ column, 143 in total.
 | B | 64 | 5 of 12 (most from 3) |
 | Opto | 61 | 4 of 8 (most from 3) |
 
-**Planned steps**
 
-| Step | Status |
-|---|---|
-| 1. Extract bouts (`extract_attack_bouts.py` → `data/attack_bouts/`): the 60 frames (2 s) before each attack start, with group, trial, time, both mice's cleaned positions, and flags for intruder aggression at the same time (mutual fighting) and for a previous attack inside the window | done: 143 bouts |
-| 2. Approach viewer (`view_attack_bouts.ipynb`): one slider through all bouts, showing each path from the intruder's view and both mice in the arena, to check the tracking (e.g. intruder nose/tail swaps, which flip the path 180°). The title gives the trial and the length of the attack that follows | notebook written |
+1. Extract bouts (`extract_attack_bouts.py` → `data/attack_bouts/`): the 60 frames (2 s) before each attack start, with group, trial, time, both mice's cleaned positions, and flags for intruder aggression at the same time (mutual fighting) and for a previous attack inside the window 
+2. Approach viewer (`view_attack_bouts.ipynb`): one slider through all bouts, showing each path from the intruder's view and both mice in the arena, to check the tracking (e.g. intruder nose/tail swaps, which flip the path 180°). The title gives the trial and the length of the attack that follows 
+3. PCA (`pca_attack_bouts.py`, which needs `bout_kinematics.csv` from `extract_bout_kinematics.py`): z-scores the 360 columns described above and fits the PCA. Each run saves `pc_scores.csv`, `loadings.csv`, `explained_variance.csv`, `config.json` and two figures (variance explained, and the paths of the bouts at each end of PC1-PC4) to a new `data/pca_results/<date_time>_kinematics_zscore/` folder.
 
