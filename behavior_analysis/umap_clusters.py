@@ -31,11 +31,16 @@ class WatershedConfig:
     compactness : float
         Watershed compactness. Higher values give more evenly sized,
         rounder regions.
+    mask_empty_bins : bool
+        If True, histogram bins with no points join no cluster (label 0), so
+        cluster boundaries follow the edge of the data. If False, every bin
+        joins a cluster, so boundaries run out to the edge of the histogram.
     """
     bins: int = 200               # histogram bins per axis
     gaussian_stddev: float = 1.5  # smoothing, in bins
     num_clusters: int = 6        # maximum number of clusters: one per density peak, tallest first
     compactness: float = 0.05     # higher = more evenly sized, rounder regions
+    mask_empty_bins: bool = True  # True = empty bins join no cluster; False = every bin joins a cluster
 
 
 def run_watershed(embedding: np.ndarray, config: WatershedConfig):
@@ -85,8 +90,8 @@ def run_watershed(embedding: np.ndarray, config: WatershedConfig):
     markers = np.zeros(smoothed_histogram.shape, dtype=int)
     markers[tuple(peaks.T)] = np.arange(1, len(peaks) + 1) #peak markers as a 2d array 
 
-    # only bins that contain data take part; empty bins stay label 0 (no cluster)
-    occupied = histogram > 0                                       # [x_bin, y_bin], like the histogram
+    # with mask_empty_bins, only bins that contain data take part; empty bins stay label 0 (no cluster)
+    occupied = histogram > 0 if config.mask_empty_bins else None   # [x_bin, y_bin], like the histogram
     clusters = watershed(-smoothed_histogram, markers, mask=occupied, compactness=config.compactness).T
     # a requested label index with zero pixels (fewer peaks than num_clusters)
     # makes center_of_mass divide by zero mass; NaN is the right answer for
