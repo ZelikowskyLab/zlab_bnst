@@ -228,17 +228,17 @@ across bouts (`scipy.stats.zscore`), so every column counts the same and, with
 recorded; facing and approach speed come from `extract_bout_kinematics.py`, which
 smooths positions over 7 frames (Savitzky-Golay, order 2) first.
 
-**Attack bouts:** one per resident `Attack` start in the fixed `behavior`
-column, 143 in total.
-
-| Group | Bouts | Trials with attacks |
-|---|---|---|
-| C | 18 | 3 of 12 |
-| B | 64 | 5 of 12 (most from 3) |
-| Opto | 61 | 4 of 8 (most from 3) |
-
 
 1. Extract bouts (`extract_attack_bouts.py` → `data/attack_bouts/`): the 60 frames (2 s) before each attack start, with group, trial, time, both mice's cleaned positions, and flags for intruder aggression at the same time (mutual fighting) and for a previous attack inside the window 
 2. Approach viewer (`view_attack_bouts.ipynb`): one slider through all bouts, showing each path from the intruder's view and both mice in the arena, to check the tracking (e.g. intruder nose/tail swaps, which flip the path 180°). The title gives the trial and the length of the attack that follows 
 3. PCA (`pca_attack_bouts.py`, which needs `bout_kinematics.csv` from `extract_bout_kinematics.py`): z-scores the 360 columns described above and fits the PCA. Each run saves `pc_scores.csv`, `loadings.csv`, `explained_variance.csv`, `config.json` and two figures (variance explained, and the paths of the bouts at each end of PC1-PC4) to a new `data/pca_results/<date_time>_kinematics_zscore/` folder.
+4. Interactive explorer (`pca_bout_explorer.py`): writes `pca_bout_explorer.html` into the newest PCA run folder. Bouts are plotted by PC score (colored by any bout property); click a bout to draw its approach path.
+
+For the run used in the figures (`20261012_104032_kinematics_zscore`): 193 bouts x 360 columns, so 193 PCs. PC1 explains 27% of the variance, PC2 18% (45% together), and PC1-PC4 57%.
+
+## 4b. Figures and statistics (`pca_figures.ipynb`)
+
+Set `RUN` to a PCA run folder name (`None` = the newest). The notebook loads that run's `pc_scores.csv`, `loadings.csv` and `explained_variance.csv`, plus `bouts.csv`, `bout_paths.npz`, `bout_kinematics.csv` and `bout_summary_features.csv` from `data/attack_bouts/`. Figures are saved to `figures/` and tables to `data/`.
+
+Group B = CD-1 (labeled THRT in some panels), group C = FS (STRS), Opto = ChR2. "Animal" is one trial's resident (`<group_folder> / trial <n>` in `pc_scores.csv`), so every bout belongs to one animal.
 
