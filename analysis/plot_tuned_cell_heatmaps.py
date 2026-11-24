@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 from itertools import product
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sb
+import sys
+import os
+sys.path.extend(['/Users/amonast/Documents/GitHub/zlab_miniscope'])
 from load_traces import build_intervals,load_aligned_act
 
 def filter_intervals(intervals, beh_col, beh_type, min_length=2, pre_window=0, all_intervals=None):
@@ -73,8 +76,11 @@ def get_tuned_df(animals,data_dir,sessions=['R1','R2']):
     index_cols = ['animal', 'session', 'behavior_type']
     rows = []
     for ani, session in product(animals, sessions):
-        pf = f"{data_dir}/p_values_{ani}_{session}.csv"
-        zf = f"{data_dir}/z_scores_{ani}_{session}.csv"
+        pf = f"{data_dir}/tuning/p_values_{ani}_{session}.csv"
+        zf = f"{data_dir}/tuning/z_scores_{ani}_{session}.csv"
+        if not (os.path.exists(pf) and os.path.exists(zf)):
+            print(f"Skipping {ani} {session}: tuning files not found")
+            continue
         df_p = pd.read_csv(pf).set_index(index_cols)
         df_z = pd.read_csv(zf).set_index(index_cols)
 
@@ -98,7 +104,7 @@ def main():
 
     data_dir = '/Users/amonast/Desktop/miniscope/data'
     traces_dir = '/Users/amonast/Desktop/miniscope/Traces'
-    behavior_csv = '/Users/amonast/Desktop/miniscope/data/intervals_allmice.csv'
+    behavior_csv = '/Users/amonast/Desktop/miniscope/data/tuning/intervals_allmice.csv'
     info_csv = '/Users/amonast/Desktop/miniscope/dbnst_data_info.csv'
     info = pd.read_csv(info_csv)
     animals = info['Mouse'].unique()
@@ -108,6 +114,8 @@ def main():
     
     with PdfPages('bout_heatmaps.pdf') as pdf:
         for ani, session in product(animals, sessions):
+            if not ((tuned['animal']==ani) & (tuned['session']==session)).any():
+                continue
             act = load_aligned_act(ani, session, traces_dir, behavior_csv, info_csv)
             intervals = build_intervals(ani, session, behavior_csv)
 
